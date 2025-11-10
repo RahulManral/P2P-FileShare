@@ -73,18 +73,44 @@ const FileReceive = () => {
     }
   };
 
-  const downloadFile = (file) => {
-    if (!file.blob) return;
+  // const downloadFile = (file) => {
+  //   if (!file.blob) return;
 
+  //   const url = URL.createObjectURL(file.blob);
+  //   const a = document.createElement("a");
+  //   a.href = url;
+  //   a.download = file.name;
+  //   document.body.appendChild(a);
+  //   a.click();
+  //   document.body.removeChild(a);
+  //   URL.revokeObjectURL(url);
+  // };
+
+  const downloadFile = (file) => {
+  if (!file.blob) {
+    alert("File not ready for download yet!");
+    return;
+  }
+
+  try {
     const url = URL.createObjectURL(file.blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = file.name;
+    a.style.display = "none";
     document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
+
+    // Clean up
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 100);
+  } catch (error) {
+    console.error("Download failed:", error);
+    alert("Failed to download file: " + error.message);
+  }
+};
 
   const downloadAllFiles = () => {
     receivedFiles.forEach((file) => {
