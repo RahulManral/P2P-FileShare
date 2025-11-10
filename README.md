@@ -1,20 +1,95 @@
-<<<<<<< HEAD
-# React + Vite
+# 🌐 P2P – Peer-to-Peer FileShare
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**P2P** is a decentralized file-sharing website that enables users to directly exchange files through a secure peer-to-peer (P2P) connection — no server storage, no sign-up, no hassle.  
+Built using **Vite**, **Tailwind CSS**, **WebRTC**, **PeerJS**, and **Node.js**, this project brings simple, private, and high-speed file sharing to your browser.
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## 🚀 Features
 
-## React Compiler
+- 🔗 **Direct P2P File Transfer** – Send files directly between peers using WebRTC.
+- 🔒 **End-to-End Encryption** – Files are encrypted during transfer for privacy.
+- 🌍 **No Central Server** – Data never touches any external storage.
+- ⚡ **Fast & Lightweight** – P2P transfer minimizes delays and server load.
+- 💻 **Cross-Platform** – Works in any modern browser, no software installation needed.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+---
 
-## Expanding the ESLint configuration
+## 🛠️ Tech Stack
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
-=======
-# P2P-FileShare
->>>>>>> 8f04d3170e2ab40cd69c2833b571721abb20c932
+- **Frontend:** Vite + Tailwind CSS
+- **Backend:** Node.js (for signaling & peer management)
+- **P2P Communication:** WebRTC + PeerJS
+
+---
+
+## 📦 Installation & Setup
+
+Clone this repository:
+
+```bash
+git clone https://github.com/your-username/p2p-FileShare.git
+cd p2p-FileShare
+```
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+### 🧩 Development Server
+
+Start the project in development mode:
+
+```bash
+npm run dev
+```
+
+Visit [http://localhost:5173](http://localhost:5173) (default for Vite) in your browser.
+
+### ⚙️ Backend (Signaling Server)
+
+If your project includes a Node.js signaling server for PeerJS:
+
+```bash
+cd server
+npm install
+node index.js
+```
+
+By default, it runs on [http://localhost:3000](http://localhost:3000).
+
+---
+
+## 💡 How It Works
+
+1. Each peer connects to a signaling server (via PeerJS) to exchange connection info.
+2. The sender selects one or more files to share.
+3. The receiver enters the sender’s ID or clicks a shared link.
+4. A direct WebRTC connection is established between peers.
+5. Files transfer securely — no centralized storage involved.
+
+---
+
+## 🔒 Security & Privacy
+
+- All transfers occur directly over P2P connections.
+- Files are encrypted during transmission with WebRTC’s secure protocols.
+
+---
+
+## 🤝 Contributing
+
+Contributions are always welcome!  
+Fork this repository, improve the code, and submit a pull request.
+
+---
+
+## 🪪 License
+
+This project is licensed under the [MIT License](LICENSE).
+
+---
+
+### ✨ Made with passion by [Rahuwul](https://github.com/your-username)
