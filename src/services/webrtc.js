@@ -76,39 +76,94 @@ class WebRTCService {
     });
   }
 
-  connectToPeer(peerId) {
-    return new Promise((resolve, reject) => {
-      if (!this.peer) {
-        reject(new Error("Peer not initialized"));
-        return;
-      }
+  // connectToPeer(peerId) {
+  //   return new Promise((resolve, reject) => {
+  //     if (!this.peer) {
+  //       reject(new Error("Peer not initialized"));
+  //       return;
+  //     }
 
-      console.log("Attempting to connect to:", peerId);
+  //     console.log("Attempting to connect to:", peerId);
 
-      // Force binary serialization
-      const conn = this.peer.connect(peerId, {
-        reliable: true,
-        serialization: "binary",
-      });
+  //     // Force binary serialization
+  //     const conn = this.peer.connect(peerId, {
+  //       reliable: true,
+  //       serialization: "binary",
+  //     });
 
-      conn.on("open", () => {
-        this.setupConnection(conn);
-        resolve(conn);
-      });
+  //     conn.on("open", () => {
+  //       this.setupConnection(conn);
+  //       resolve(conn);
+  //     });
 
-      conn.on("error", (error) => {
-        console.error("Connection error:", error);
-        if (this.onError) this.onError(error);
-        reject(error);
-      });
+  //     conn.on("error", (error) => {
+  //       console.error("Connection error:", error);
+  //       if (this.onError) this.onError(error);
+  //       reject(error);
+  //     });
 
-      setTimeout(() => {
-        if (!this.connection || !this.connection.open) {
-          reject(new Error("Connection timeout"));
-        }
-      }, 15000);
+  //     setTimeout(() => {
+  //       if (!this.connection || !this.connection.open) {
+  //         reject(new Error("Connection timeout"));
+  //       }
+  //     }, 15000);
+  //   });
+  // }
+
+  // Add this to the connectToPeer method in webrtc.js
+connectToPeer(peerId) {
+  return new Promise((resolve, reject) => {
+    if (!this.peer) {
+      reject(new Error("Peer not initialized"));
+      return;
+    }
+
+    console.log("🔵 Attempting to connect to:", peerId);
+    console.log("🔵 My peer ID:", this.peer.id);
+    console.log("🔵 Peer destroyed?", this.peer.destroyed);
+    console.log("🔵 Peer disconnected?", this.peer.disconnected);
+
+    // Force binary serialization
+    const conn = this.peer.connect(peerId, {
+      reliable: true,
+      serialization: "binary",
     });
-  }
+
+    console.log("🔵 Connection object created");
+
+    let timeoutId;
+
+    conn.on("open", () => {
+      console.log("🟢 Connection opened!");
+      clearTimeout(timeoutId);
+      this.setupConnection(conn);
+      resolve(conn);
+    });
+
+    conn.on("error", (error) => {
+      console.error("🔴 Connection error:", error);
+      clearTimeout(timeoutId);
+      if (this.onError) this.onError(error);
+      reject(error);
+    });
+
+    conn.on("close", () => {
+      console.log("🟡 Connection closed");
+    });
+
+    // Add timeout with better error message
+    timeoutId = setTimeout(() => {
+      if (!this.connection || !this.connection.open) {
+        console.error("🔴 Connection timeout after 15 seconds");
+        reject(
+          new Error(
+            "Connection timeout. Make sure both peers are online and the ID is correct."
+          )
+        );
+      }
+    }, 15000);
+  });
+}
 
   async sendFiles(files) {
     if (!this.connection) {
