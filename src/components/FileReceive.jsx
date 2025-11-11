@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import webrtcService from "../services/webrtc";
 
 const FileReceive = () => {
@@ -8,24 +8,36 @@ const FileReceive = () => {
   const [downloadProgress, setDownloadProgress] = useState({});
   const [isConnected, setIsConnected] = useState(false);
   const [myPeerId, setMyPeerId] = useState("");
+  const connectionEstablishedRef = useRef(false);
 
   useEffect(() => {
     const initReceiver = async () => {
       try {
         const id = await webrtcService.initializePeer();
         setMyPeerId(id);
-        console.log("Receiver initialized with ID:", id);
+        console.log("✅ Receiver initialized with ID:", id);
 
         webrtcService.onConnectionEstablished = () => {
-          console.log("Connection established!");
-          setIsConnected(true);
-          setIsConnecting(false);
+          console.log("✅ Connection established callback triggered!");
+          if (!connectionEstablishedRef.current) {
+            connectionEstablishedRef.current = true;
+            setIsConnected(true);
+            setIsConnecting(false);
+          }
         };
 
         webrtcService.onReceiveFile = (data) => {
-          console.log("Received file event:", data.type);
+          console.log("📥 Received file event:", data.type);
+          
+          // Also set connected when we receive file data
+          if (!connectionEstablishedRef.current) {
+            connectionEstablishedRef.current = true;
+            setIsConnected(true);
+            setIsConnecting(false);
+          }
+
           if (data.type === "list") {
-            console.log("Setting file list:", data.files);
+            console.log("📋 Setting file list:", data.files);
             setReceivedFiles(
               data.files.map((file, index) => ({
                 ...file,
@@ -35,7 +47,7 @@ const FileReceive = () => {
               }))
             );
           } else if (data.type === "complete") {
-            console.log("File complete:", data.fileIndex);
+            console.log("✅ File complete:", data.fileIndex, data.name);
             setReceivedFiles((prev) =>
               prev.map((file) =>
                 file.id === data.fileIndex
@@ -54,13 +66,12 @@ const FileReceive = () => {
         };
 
         webrtcService.onError = (error) => {
-          console.error("WebRTC Error:", error);
+          console.error("❌ WebRTC Error:", error);
           alert("Error: " + error.message);
           setIsConnecting(false);
-          setIsConnected(false);
         };
       } catch (error) {
-        console.error("Failed to initialize:", error);
+        console.error("❌ Failed to initialize:", error);
         alert("Failed to initialize: " + error.message);
       }
     };
@@ -74,7 +85,7 @@ const FileReceive = () => {
 
   const connectToSender = async () => {
     const trimmedId = senderId.trim();
-    
+
     if (!trimmedId) {
       alert("Please enter a valid Peer ID");
       return;
@@ -85,17 +96,17 @@ const FileReceive = () => {
       return;
     }
 
-    console.log("Attempting to connect to:", trimmedId);
+    console.log("🔵 Attempting to connect to:", trimmedId);
     setIsConnecting(true);
-    
+
     try {
       await webrtcService.connectToPeer(trimmedId);
-      console.log("Connection initiated successfully");
+      console.log("✅ Connection initiated successfully");
+      // Don't set isConnected here - wait for callback or file data
     } catch (error) {
-      console.error("Failed to connect:", error);
+      console.error("❌ Failed to connect:", error);
       alert("Failed to connect: " + error.message);
       setIsConnecting(false);
-      setIsConnected(false);
     }
   };
 
@@ -106,6 +117,8 @@ const FileReceive = () => {
     }
 
     try {
+      console.log("💾 Downloading:", file.name, file.blob.size, "bytes");
+      
       const url = URL.createObjectURL(file.blob);
       const a = document.createElement("a");
       a.href = url;
@@ -114,20 +127,18 @@ const FileReceive = () => {
       document.body.appendChild(a);
       a.click();
 
-      // Mark as downloaded
       setReceivedFiles((prev) =>
         prev.map((f) => (f.id === file.id ? { ...f, downloaded: true } : f))
       );
 
-      // Clean up after a delay
       setTimeout(() => {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
       }, 100);
 
-      console.log("Downloaded:", file.name);
+      console.log("✅ Downloaded:", file.name);
     } catch (error) {
-      console.error("Download failed:", error);
+      console.error("❌ Download failed:", error);
       alert("Failed to download file: " + error.message);
     }
   };
@@ -139,9 +150,9 @@ const FileReceive = () => {
       return;
     }
 
-    console.log(`Downloading ${readyFiles.length} files`);
+    console.log(`💾 Downloading ${readyFiles.length} files`);
     readyFiles.forEach((file, index) => {
-      setTimeout(() => downloadFile(file), index * 200);
+      setTimeout(() => downloadFile(file), index * 300);
     });
   };
 
@@ -165,6 +176,7 @@ const FileReceive = () => {
 
   const handleDisconnect = () => {
     webrtcService.disconnect();
+    connectionEstablishedRef.current = false;
     setIsConnected(false);
     setIsConnecting(false);
     setSenderId("");
@@ -175,9 +187,7 @@ const FileReceive = () => {
 
   return (
     <div className="neubrutalism-card">
-      <h2 className="text-4xl font-black mb-6 text-center">
-        RECEIVE FILES
-      </h2>
+      <h2 className="text-4xl font-black mb-6 text-center">RECEIVE FILES</h2>
 
       {myPeerId && (
         <div className="bg-gray-100 border-2 border-black p-3 mb-6 text-center">
@@ -187,7 +197,7 @@ const FileReceive = () => {
         </div>
       )}
 
-      {!isConnected ? (
+      {!isConnected && receivedFiles.length === 0 ? (
         <div>
           <div className="mb-6">
             <label className="block text-2xl font-bold mb-4">
@@ -216,8 +226,8 @@ const FileReceive = () => {
               </button>
             </div>
             {isConnecting && (
-              <p className="mt-3 text-center font-bold text-blue-600">
-                Establishing connection... This may take a few seconds.
+              <p className="mt-3 text-center font-bold text-blue-600 animate-pulse">
+                🔄 Establishing connection... Please wait.
               </p>
             )}
           </div>
@@ -237,9 +247,9 @@ const FileReceive = () => {
       ) : (
         <div>
           <div className="bg-neubrutalism-lime text-black p-4 border-4 border-black mb-6 text-center">
-            <h3 className="text-2xl font-bold">🟢 CONNECTED TO SENDER</h3>
+            <h3 className="text-2xl font-bold">🟢 CONNECTED & RECEIVING</h3>
             <p className="font-bold text-sm mt-2 break-all">
-              PEER: {senderId}
+              {senderId ? `FROM: ${senderId}` : "Connection Active"}
             </p>
           </div>
 
@@ -254,7 +264,8 @@ const FileReceive = () => {
                   disabled={receivedFiles.filter((f) => f.blob).length === 0}
                   className="bg-neubrutalism-orange neubrutalism-btn px-6 py-2 disabled:opacity-50"
                 >
-                  DOWNLOAD ALL
+                  DOWNLOAD ALL (
+                  {receivedFiles.filter((f) => f.blob).length})
                 </button>
               </div>
 
@@ -274,7 +285,7 @@ const FileReceive = () => {
                             {file.name}
                           </h4>
                           <p className="text-sm text-gray-600">
-                            {formatFileSize(file.size)} • {file.type}
+                            {formatFileSize(file.size)} • {file.type || "File"}
                           </p>
                         </div>
                       </div>
@@ -295,7 +306,7 @@ const FileReceive = () => {
                           <div className="font-bold text-sm mb-1">
                             {Math.round(downloadProgress[file.id] || 0)}%
                           </div>
-                          <div className="text-blue-600 font-bold text-xs">
+                          <div className="text-blue-600 font-bold text-xs animate-pulse">
                             RECEIVING...
                           </div>
                         </div>
@@ -317,7 +328,7 @@ const FileReceive = () => {
               </div>
             </div>
           ) : (
-            <div className="text-center p-8 bg-gray-100 border-4 border-dashed border-black mb-6">
+            <div className="text-center p-8 bg-gray-100 border-4 border-dashed border-black mb-6 animate-pulse">
               <div className="text-6xl mb-4">📭</div>
               <p className="text-xl font-bold">
                 WAITING FOR FILES FROM SENDER...

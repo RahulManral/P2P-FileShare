@@ -1,6 +1,6 @@
 import Peer from "peerjs";
 
-class WebRTCService {
+class webtrc {
   constructor() {
     this.peer = null;
     this.connection = null;
@@ -53,6 +53,7 @@ class WebRTCService {
   }
 
   setupConnection(conn) {
+    console.log("Setting up connection...");
     this.connection = conn;
 
     conn.on("open", () => {
@@ -73,97 +74,60 @@ class WebRTCService {
 
     conn.on("close", () => {
       console.log("Connection closed");
+      this.connection = null;
     });
   }
 
-  // connectToPeer(peerId) {
-  //   return new Promise((resolve, reject) => {
-  //     if (!this.peer) {
-  //       reject(new Error("Peer not initialized"));
-  //       return;
-  //     }
-
-  //     console.log("Attempting to connect to:", peerId);
-
-  //     // Force binary serialization
-  //     const conn = this.peer.connect(peerId, {
-  //       reliable: true,
-  //       serialization: "binary",
-  //     });
-
-  //     conn.on("open", () => {
-  //       this.setupConnection(conn);
-  //       resolve(conn);
-  //     });
-
-  //     conn.on("error", (error) => {
-  //       console.error("Connection error:", error);
-  //       if (this.onError) this.onError(error);
-  //       reject(error);
-  //     });
-
-  //     setTimeout(() => {
-  //       if (!this.connection || !this.connection.open) {
-  //         reject(new Error("Connection timeout"));
-  //       }
-  //     }, 15000);
-  //   });
-  // }
-
-  // Add this to the connectToPeer method in webrtc.js
-connectToPeer(peerId) {
-  return new Promise((resolve, reject) => {
-    if (!this.peer) {
-      reject(new Error("Peer not initialized"));
-      return;
-    }
-
-    console.log("🔵 Attempting to connect to:", peerId);
-    console.log("🔵 My peer ID:", this.peer.id);
-    console.log("🔵 Peer destroyed?", this.peer.destroyed);
-    console.log("🔵 Peer disconnected?", this.peer.disconnected);
-
-    // Force binary serialization
-    const conn = this.peer.connect(peerId, {
-      reliable: true,
-      serialization: "binary",
-    });
-
-    console.log("🔵 Connection object created");
-
-    let timeoutId;
-
-    conn.on("open", () => {
-      console.log("🟢 Connection opened!");
-      clearTimeout(timeoutId);
-      this.setupConnection(conn);
-      resolve(conn);
-    });
-
-    conn.on("error", (error) => {
-      console.error("🔴 Connection error:", error);
-      clearTimeout(timeoutId);
-      if (this.onError) this.onError(error);
-      reject(error);
-    });
-
-    conn.on("close", () => {
-      console.log("🟡 Connection closed");
-    });
-
-    // Add timeout with better error message
-    timeoutId = setTimeout(() => {
-      if (!this.connection || !this.connection.open) {
-        console.error("🔴 Connection timeout after 15 seconds");
-        reject(
-          new Error(
-            "Connection timeout. Make sure both peers are online and the ID is correct."
-          )
-        );
+  connectToPeer(peerId) {
+    return new Promise((resolve, reject) => {
+      if (!this.peer) {
+        reject(new Error("Peer not initialized"));
+        return;
       }
-    }, 15000);
-  });
-}
+
+      console.log("Connecting to peer:", peerId);
+
+      const conn = this.peer.connect(peerId, {
+        reliable: true,
+        serialization: "binary",
+      });
+
+      let timeoutId;
+      let resolved = false;
+
+      conn.on("open", () => {
+        console.log("Connection opened successfully!");
+        clearTimeout(timeoutId);
+        if (!resolved) {
+          resolved = true;
+          this.setupConnection(conn);
+          resolve(conn);
+        }
+      });
+
+      conn.on("error", (error) => {
+        console.error("Connection error:", error);
+        clearTimeout(timeoutId);
+        if (!resolved) {
+          resolved = true;
+          if (this.onError) this.onError(error);
+          reject(error);
+        }
+      });
+
+      timeoutId = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          console.error("Connection timeout");
+          reject(
+            new Error(
+              "Connection timeout. Please check the peer ID and try again."
+            )
+          );
+        }
+      }, 20000);
+    });
+  }
 
   async sendFiles(files) {
     if (!this.connection) {
@@ -174,7 +138,8 @@ connectToPeer(peerId) {
       throw new Error("Connection is not open");
     }
 
-    // Send file list as binary
+    console.log("Sending file list...");
+
     const fileList = Array.from(files).map((file) => ({
       name: file.name,
       size: file.size,
@@ -186,12 +151,17 @@ connectToPeer(peerId) {
       files: fileList,
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     for (let i = 0; i < files.length; i++) {
+      console.log(
+        `Sending file ${i + 1}/${files.length}: ${files[i].name}`
+      );
       await this.sendFile(files[i], i);
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await new Promise((resolve) => setTimeout(resolve, 300));
     }
+
+    console.log("All files sent!");
   }
 
   sendMetadata(metadata) {
@@ -199,30 +169,29 @@ connectToPeer(peerId) {
     const encoder = new TextEncoder();
     const jsonBytes = encoder.encode(json);
 
-    // Create packet: [0xFF (marker), length (4 bytes), json data]
     const packet = new Uint8Array(5 + jsonBytes.length);
-    packet[0] = 0xff; // Metadata marker
+    packet[0] = 0xff;
     new DataView(packet.buffer).setUint32(1, jsonBytes.length, true);
     packet.set(jsonBytes, 5);
 
     this.connection.send(packet.buffer);
+    console.log("Metadata sent:", metadata.type);
   }
 
   async sendFile(file, fileIndex) {
-    const chunkSize = 16384; // 16KB chunks
+    const chunkSize = 16384;
     const totalChunks = Math.ceil(file.size / chunkSize);
 
-    // Send file start metadata
     this.sendMetadata({
       type: "file-start",
-      fileIndex,
+      fileIndex: fileIndex,
       name: file.name,
       size: file.size,
       type: file.type,
-      totalChunks,
+      totalChunks: totalChunks,
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
     let offset = 0;
     let chunkIndex = 0;
@@ -232,12 +201,10 @@ connectToPeer(peerId) {
       const arrayBuffer = await slice.arrayBuffer();
       const chunkData = new Uint8Array(arrayBuffer);
 
-      // Create packet: [0x00 (data marker), fileIndex (2 bytes),
-      // chunkIndex (4 bytes), data]
       const packet = new Uint8Array(7 + chunkData.length);
       const view = new DataView(packet.buffer);
 
-      packet[0] = 0x00; // Data marker
+      packet[0] = 0x00;
       view.setUint16(1, fileIndex, true);
       view.setUint32(3, chunkIndex, true);
       packet.set(chunkData, 7);
@@ -252,16 +219,14 @@ connectToPeer(peerId) {
         this.onProgress(fileIndex, progress);
       }
 
-      // Small delay to prevent overwhelming the connection
       if (chunkIndex % 10 === 0) {
         await new Promise((resolve) => setTimeout(resolve, 5));
       }
     }
 
-    // Send file end metadata
     this.sendMetadata({
       type: "file-end",
-      fileIndex,
+      fileIndex: fileIndex,
     });
 
     console.log(`File ${fileIndex} sent: ${file.name}`);
@@ -275,7 +240,6 @@ connectToPeer(peerId) {
     const marker = packet[0];
 
     if (marker === 0xff) {
-      // Metadata packet
       const view = new DataView(packet.buffer);
       const jsonLength = view.getUint32(1, true);
       const jsonBytes = packet.slice(5, 5 + jsonLength);
@@ -284,7 +248,6 @@ connectToPeer(peerId) {
 
       this.handleMetadata(json);
     } else if (marker === 0x00) {
-      // Data packet
       const view = new DataView(packet.buffer);
       const fileIndex = view.getUint16(1, true);
       const chunkIndex = view.getUint32(3, true);
@@ -295,9 +258,11 @@ connectToPeer(peerId) {
   }
 
   handleMetadata(json) {
+    console.log("Metadata received:", json.type);
+
     switch (json.type) {
       case "file-list":
-        console.log("Received file list:", json.files);
+        console.log("File list received:", json.files);
         if (this.onReceiveFile) {
           this.onReceiveFile({
             type: "list",
@@ -307,7 +272,7 @@ connectToPeer(peerId) {
         break;
 
       case "file-start":
-        console.log("Starting to receive file:", json.name);
+        console.log("Starting file receive:", json.name);
         this.currentFile = {
           name: json.name,
           size: json.size,
@@ -320,12 +285,24 @@ connectToPeer(peerId) {
         break;
 
       case "file-end":
-        if (this.currentFile && this.currentFile.fileIndex === json.fileIndex) {
-          console.log("File transfer complete:", this.currentFile.name);
+        if (
+          this.currentFile &&
+          this.currentFile.fileIndex === json.fileIndex
+        ) {
+          console.log("File complete:", this.currentFile.name);
 
-          // Combine all chunks
-          const chunks = this.currentFile.chunks.filter((c) => c !== undefined);
+          const chunks = this.currentFile.chunks.filter(
+            (c) => c !== undefined
+          );
+
+          if (chunks.length !== this.currentFile.totalChunks) {
+            console.error(
+              `Missing chunks! Got ${chunks.length}/${this.currentFile.totalChunks}`
+            );
+          }
+
           const blob = new Blob(chunks, { type: this.currentFile.type });
+          console.log("Blob created:", blob.size, "bytes");
 
           if (this.onReceiveFile) {
             this.onReceiveFile({
@@ -353,10 +330,17 @@ connectToPeer(peerId) {
           100;
         this.onProgress(fileIndex, Math.min(progress, 100));
       }
+
+      if (this.currentFile.receivedChunks % 50 === 0) {
+        console.log(
+          `Progress: ${this.currentFile.receivedChunks}/${this.currentFile.totalChunks} chunks`
+        );
+      }
     }
   }
 
   disconnect() {
+    console.log("Disconnecting...");
     if (this.connection) {
       this.connection.close();
       this.connection = null;
@@ -369,4 +353,4 @@ connectToPeer(peerId) {
   }
 }
 
-export default new WebRTCService();
+export default new webtrc();
