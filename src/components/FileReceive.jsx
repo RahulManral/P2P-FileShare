@@ -25,13 +25,14 @@ const FileReceive = () => {
                 ...file,
                 id: index,
                 blob: null,
+                downloaded: false,
               }))
             );
           } else if (data.type === "complete") {
             setReceivedFiles((prev) =>
               prev.map((file) =>
                 file.id === data.fileIndex
-                  ? { ...file, blob: data.blob }
+                  ? { ...file, blob: data.blob, downloaded: false }
                   : file
               )
             );
@@ -73,50 +74,47 @@ const FileReceive = () => {
     }
   };
 
-  // const downloadFile = (file) => {
-  //   if (!file.blob) return;
-
-  //   const url = URL.createObjectURL(file.blob);
-  //   const a = document.createElement("a");
-  //   a.href = url;
-  //   a.download = file.name;
-  //   document.body.appendChild(a);
-  //   a.click();
-  //   document.body.removeChild(a);
-  //   URL.revokeObjectURL(url);
-  // };
-
   const downloadFile = (file) => {
-  if (!file.blob) {
-    alert("File not ready for download yet!");
-    return;
-  }
+    if (!file.blob) {
+      alert("File not ready for download yet!");
+      return;
+    }
 
-  try {
-    const url = URL.createObjectURL(file.blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = file.name;
-    a.style.display = "none";
-    document.body.appendChild(a);
-    a.click();
+    try {
+      const url = URL.createObjectURL(file.blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = file.name;
+      document.body.appendChild(a);
+      a.click();
 
-    // Clean up
-    setTimeout(() => {
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }, 100);
-  } catch (error) {
-    console.error("Download failed:", error);
-    alert("Failed to download file: " + error.message);
-  }
-};
+      // Mark as downloaded
+      setReceivedFiles((prev) =>
+        prev.map((f) =>
+          f.id === file.id ? { ...f, downloaded: true } : f
+        )
+      );
+
+      // Clean up after a delay
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 100);
+    } catch (error) {
+      console.error("Download failed:", error);
+      alert("Failed to download file: " + error.message);
+    }
+  };
 
   const downloadAllFiles = () => {
-    receivedFiles.forEach((file) => {
-      if (file.blob) {
-        setTimeout(() => downloadFile(file), Math.random() * 500);
-      }
+    const readyFiles = receivedFiles.filter((file) => file.blob);
+    if (readyFiles.length === 0) {
+      alert("No files ready to download yet!");
+      return;
+    }
+
+    readyFiles.forEach((file, index) => {
+      setTimeout(() => downloadFile(file), index * 200);
     });
   };
 
@@ -138,7 +136,9 @@ const FileReceive = () => {
 
   return (
     <div className="neubrutalism-card">
-      <h2 className="text-4xl font-black mb-6 text-center">RECEIVE FILES</h2>
+      <h2 className="text-4xl font-black mb-6 text-center">
+        RECEIVE FILES
+      </h2>
 
       {!isConnected ? (
         <div>
@@ -153,6 +153,9 @@ const FileReceive = () => {
                 onChange={(e) => setSenderId(e.target.value)}
                 placeholder="Paste peer ID here"
                 className="neubrutalism-input text-lg flex-1 font-mono"
+                onKeyPress={(e) => {
+                  if (e.key === "Enter") connectToSender();
+                }}
               />
               <button
                 onClick={connectToSender}
@@ -190,7 +193,10 @@ const FileReceive = () => {
                 <h3 className="text-2xl font-bold">RECEIVED FILES:</h3>
                 <button
                   onClick={downloadAllFiles}
-                  className="bg-neubrutalism-orange neubrutalism-btn px-6 py-2"
+                  disabled={
+                    receivedFiles.filter((f) => f.blob).length === 0
+                  }
+                  className="bg-neubrutalism-orange neubrutalism-btn px-6 py-2 disabled:opacity-50"
                 >
                   DOWNLOAD ALL
                 </button>
@@ -218,9 +224,13 @@ const FileReceive = () => {
                       {file.blob ? (
                         <button
                           onClick={() => downloadFile(file)}
-                          className="bg-neubrutalism-yellow neubrutalism-btn px-4 py-2 text-sm"
+                          className={`neubrutalism-btn px-4 py-2 text-sm ${
+                            file.downloaded
+                              ? "bg-gray-300"
+                              : "bg-neubrutalism-yellow"
+                          }`}
                         >
-                          DOWNLOAD
+                          {file.downloaded ? "✓ DOWNLOADED" : "DOWNLOAD"}
                         </button>
                       ) : (
                         <div className="text-right">
@@ -250,7 +260,16 @@ const FileReceive = () => {
             </div>
           )}
 
-          <div className="text-center">
+          {receivedFiles.length === 0 && (
+            <div className="text-center p-8 bg-gray-100 border-4 border-dashed border-black">
+              <div className="text-6xl mb-4">📭</div>
+              <p className="text-xl font-bold">
+                WAITING FOR FILES FROM SENDER...
+              </p>
+            </div>
+          )}
+
+          <div className="text-center mt-6">
             <button
               onClick={() => {
                 webrtcService.disconnect();
@@ -258,7 +277,6 @@ const FileReceive = () => {
                 setSenderId("");
                 setReceivedFiles([]);
                 setDownloadProgress({});
-                window.location.reload();
               }}
               className="bg-red-500 text-white border-4 border-black px-6 py-3 font-bold hover:bg-red-600 shadow-brutal hover:shadow-brutal-sm"
             >

@@ -13,7 +13,6 @@ class WebRTCService {
 
   initializePeer() {
     return new Promise((resolve, reject) => {
-      // Use public PeerJS server - works across different tabs/devices
       this.peer = new Peer({
         host: "0.peerjs.com",
         port: 443,
@@ -23,12 +22,9 @@ class WebRTCService {
           iceServers: [
             { urls: "stun:stun.l.google.com:19302" },
             { urls: "stun:stun1.l.google.com:19302" },
-            { urls: "stun:stun2.l.google.com:19302" },
-            { urls: "stun:stun3.l.google.com:19302" },
-            { urls: "stun:stun4.l.google.com:19302" },
           ],
         },
-        debug: 2, // Enable debug logging
+        debug: 1,
       });
 
       this.peer.on("open", (id) => {
@@ -58,6 +54,9 @@ class WebRTCService {
 
   handleConnection(conn) {
     this.connection = conn;
+
+    // Use binary serialization for file chunks
+    conn.serialization = "binary";
 
     conn.on("open", () => {
       console.log("Connection established with:", conn.peer);
@@ -91,7 +90,6 @@ class WebRTCService {
 
       const conn = this.peer.connect(peerId, {
         reliable: true,
-        serialization: "json",
       });
 
       conn.on("open", () => {
@@ -113,12 +111,11 @@ class WebRTCService {
         reject(error);
       });
 
-      // Add timeout
       setTimeout(() => {
         if (!this.connection) {
           reject(new Error("Connection timeout"));
         }
-      }, 10000);
+      }, 15000);
     });
   }
 
@@ -137,12 +134,14 @@ class WebRTCService {
       type: file.type,
     }));
 
-    this.connection.send({
+    // Send metadata as JSON string in ArrayBuffer
+    const metadata = JSON.stringify({
       type: "file-list",
       files: fileList,
     });
+    this.connection.send(new TextEncoder().encode(metadata));
 
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
     for (let i = 0; i < files.length; i++) {
       await this.sendFile(files[i], i);
@@ -153,7 +152,8 @@ class WebRTCService {
     const chunkSize = 16384; // 16KB chunks
     const chunks = Math.ceil(file.size / chunkSize);
 
-    this.connection.send({
+    // Send file start metadata
+    const startMetadata = JSON.stringify({
       type: "file-start",
       fileIndex,
       name: file.name,
@@ -161,131 +161,132 @@ class WebRTCService {
       type: file.type,
       chunks,
     });
+    this.connection.send(new TextEncoder().encode(startMetadata));
 
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
-    const reader = new FileReader();
     let offset = 0;
     let chunkIndex = 0;
 
-    const readChunk = () => {
-      return new Promise((resolve, reject) => {
-        const slice = file.slice(offset, offset + chunkSize);
-
-        reader.onload = (e) => {
-          try {
-            // Convert ArrayBuffer to base64 for reliable transmission
-            const base64 = btoa(
-              String.fromCharCode(...new Uint8Array(e.target.result))
-            );
-
-            this.connection.send({
-              type: "file-chunk",
-              fileIndex,
-              chunkIndex,
-              data: base64,
-            });
-
-            chunkIndex++;
-            offset += chunkSize;
-
-            if (this.onProgress) {
-              const progress = Math.min((offset / file.size) * 100, 100);
-              this.onProgress(fileIndex, progress);
-            }
-
-            resolve();
-          } catch (error) {
-            reject(error);
-          }
-        };
-
-        reader.onerror = reject;
-        reader.readAsArrayBuffer(slice);
-      });
-    };
-
     while (offset < file.size) {
-      await readChunk();
-      await new Promise((resolve) => setTimeout(resolve, 5));
+      const slice = file.slice(offset, offset + chunkSize);
+      const arrayBuffer = await slice.arrayBuffer();
+
+      // Create header with metadata
+      const header = JSON.stringify({
+        type: "file-chunk",
+        fileIndex,
+        chunkIndex,
+      });
+      const headerBytes = new TextEncoder().encode(header);
+
+      // Combine header length (4 bytes) + header + data
+      const packet = new Uint8Array(
+        4 + headerBytes.length + arrayBuffer.byteLength
+      );
+      const view = new DataView(packet.buffer);
+      view.setUint32(0, headerBytes.length);
+      packet.set(headerBytes, 4);
+      packet.set(new Uint8Array(arrayBuffer), 4 + headerBytes.length);
+
+      this.connection.send(packet.buffer);
+
+      chunkIndex++;
+      offset += chunkSize;
+
+      if (this.onProgress) {
+        const progress = Math.min((offset / file.size) * 100, 100);
+        this.onProgress(fileIndex, progress);
+      }
+
+      // Throttle to prevent overwhelming the connection
+      await new Promise((resolve) => setTimeout(resolve, 10));
     }
 
-    this.connection.send({
+    // Send file end metadata
+    const endMetadata = JSON.stringify({
       type: "file-end",
       fileIndex,
     });
+    this.connection.send(new TextEncoder().encode(endMetadata));
 
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
 
   handleReceivedData(data) {
-    if (!data.type) return;
+    try {
+      // Try to parse as JSON metadata first
+      const text = new TextDecoder().decode(data);
+      const json = JSON.parse(text);
 
-    switch (data.type) {
-      case "file-list":
-        if (this.onReceiveFile) {
-          this.onReceiveFile({
-            type: "list",
-            files: data.files,
-          });
-        }
-        break;
-
-      case "file-start":
-        console.log("Starting to receive file:", data.name);
-        this.currentFile = {
-          name: data.name,
-          size: data.size,
-          type: data.type,
-          chunks: [],
-          receivedChunks: 0,
-          totalChunks: data.chunks,
-          fileIndex: data.fileIndex,
-        };
-        break;
-
-      case "file-chunk":
-        if (this.currentFile) {
-          // Convert base64 back to ArrayBuffer
-          const binary = atob(data.data);
-          const bytes = new Uint8Array(binary.length);
-          for (let i = 0; i < binary.length; i++) {
-            bytes[i] = binary.charCodeAt(i);
-          }
-
-          this.currentFile.chunks.push(bytes.buffer);
-          this.currentFile.receivedChunks++;
-
-          if (this.onProgress) {
-            const progress =
-              (this.currentFile.receivedChunks /
-                this.currentFile.totalChunks) *
-              100;
-            this.onProgress(data.fileIndex, Math.min(progress, 100));
-          }
-        }
-        break;
-
-      case "file-end":
-        if (this.currentFile) {
-          console.log("File transfer complete:", this.currentFile.name);
-
-          const blob = new Blob(this.currentFile.chunks, {
-            type: this.currentFile.type,
-          });
-
+      switch (json.type) {
+        case "file-list":
           if (this.onReceiveFile) {
             this.onReceiveFile({
-              type: "complete",
-              fileIndex: data.fileIndex,
-              name: this.currentFile.name,
-              blob: blob,
+              type: "list",
+              files: json.files,
             });
           }
+          break;
 
-          this.currentFile = null;
+        case "file-start":
+          console.log("Starting to receive file:", json.name);
+          this.currentFile = {
+            name: json.name,
+            size: json.size,
+            type: json.type,
+            chunks: [],
+            receivedChunks: 0,
+            totalChunks: json.chunks,
+            fileIndex: json.fileIndex,
+          };
+          break;
+
+        case "file-end":
+          if (this.currentFile) {
+            console.log("File transfer complete:", this.currentFile.name);
+
+            const blob = new Blob(this.currentFile.chunks, {
+              type: this.currentFile.type,
+            });
+
+            if (this.onReceiveFile) {
+              this.onReceiveFile({
+                type: "complete",
+                fileIndex: json.fileIndex,
+                name: this.currentFile.name,
+                blob: blob,
+              });
+            }
+
+            this.currentFile = null;
+          }
+          break;
+      }
+    } catch (e) {
+      // Not JSON, must be a file chunk
+      if (this.currentFile) {
+        const packet = new Uint8Array(data);
+        const view = new DataView(packet.buffer);
+        const headerLength = view.getUint32(0);
+
+        // Extract header
+        const headerBytes = packet.slice(4, 4 + headerLength);
+        const header = JSON.parse(new TextDecoder().decode(headerBytes));
+
+        // Extract chunk data
+        const chunkData = packet.slice(4 + headerLength);
+
+        this.currentFile.chunks.push(chunkData.buffer);
+        this.currentFile.receivedChunks++;
+
+        if (this.onProgress) {
+          const progress =
+            (this.currentFile.receivedChunks / this.currentFile.totalChunks) *
+            100;
+          this.onProgress(header.fileIndex, Math.min(progress, 100));
         }
-        break;
+      }
     }
   }
 
