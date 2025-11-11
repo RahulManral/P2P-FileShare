@@ -7,6 +7,7 @@ const FileUpload = () => {
   const [isInitializing, setIsInitializing] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({});
   const [isTransferring, setIsTransferring] = useState(false);
+  const [isReceiverConnected, setIsReceiverConnected] = useState(false);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -23,6 +24,7 @@ const FileUpload = () => {
 
       webrtcService.onConnectionEstablished = () => {
         console.log("Receiver connected!");
+        setIsReceiverConnected(true);
       };
 
       webrtcService.onProgress = (fileIndex, progress) => {
@@ -45,6 +47,7 @@ const FileUpload = () => {
   const handleFileSelect = (event) => {
     const files = Array.from(event.target.files);
     setSelectedFiles(files);
+    setUploadProgress({});
   };
 
   const handleDragOver = (e) => {
@@ -55,21 +58,30 @@ const FileUpload = () => {
     e.preventDefault();
     const files = Array.from(e.dataTransfer.files);
     setSelectedFiles(files);
+    setUploadProgress({});
   };
 
   const removeFile = (index) => {
     setSelectedFiles((files) => files.filter((_, i) => i !== index));
+    setUploadProgress((prev) => {
+      const newProgress = { ...prev };
+      delete newProgress[index];
+      return newProgress;
+    });
   };
 
   const startTransfer = async () => {
     if (selectedFiles.length === 0) return;
 
     setIsTransferring(true);
+    setUploadProgress({});
+
     try {
       await webrtcService.sendFiles(selectedFiles);
-      alert("Transfer complete!");
+      alert("Transfer complete! All files sent successfully.");
     } catch (error) {
       alert("Transfer failed: " + error.message);
+      console.error("Transfer error:", error);
     } finally {
       setIsTransferring(false);
     }
@@ -109,13 +121,21 @@ const FileUpload = () => {
             <p className="text-lg font-bold text-center mb-4">
               SHARE THIS ID WITH THE RECEIVER
             </p>
-            <div className="text-center">
+            <div className="flex gap-4 justify-center">
               <button
-                onClick={() => navigator.clipboard.writeText(peerId)}
+                onClick={() => {
+                  navigator.clipboard.writeText(peerId);
+                  alert("Peer ID copied to clipboard!");
+                }}
                 className="bg-neubrutalism-cyan text-black px-6 py-2 border-2 border-black font-bold hover:bg-neubrutalism-lime"
               >
                 COPY ID
               </button>
+              {isReceiverConnected && (
+                <span className="bg-neubrutalism-lime text-black px-6 py-2 border-2 border-black font-bold">
+                  🟢 RECEIVER CONNECTED
+                </span>
+              )}
             </div>
           </div>
 
@@ -141,7 +161,9 @@ const FileUpload = () => {
 
           {selectedFiles.length > 0 && (
             <div className="mb-6">
-              <h3 className="text-2xl font-bold mb-4">SELECTED FILES:</h3>
+              <h3 className="text-2xl font-bold mb-4">
+                SELECTED FILES: ({selectedFiles.length})
+              </h3>
               <div className="space-y-2">
                 {selectedFiles.map((file, index) => (
                   <div
@@ -160,7 +182,8 @@ const FileUpload = () => {
                       </div>
                       <button
                         onClick={() => removeFile(index)}
-                        className="bg-red-500 text-white px-3 py-1 border-2 border-black font-bold hover:bg-red-600"
+                        disabled={isTransferring}
+                        className="bg-red-500 text-white px-3 py-1 border-2 border-black font-bold hover:bg-red-600 disabled:opacity-50"
                       >
                         REMOVE
                       </button>
@@ -194,15 +217,20 @@ const FileUpload = () => {
             <div className="text-center">
               <button
                 onClick={startTransfer}
-                disabled={isTransferring || !webrtcService.connection}
+                disabled={isTransferring || !isReceiverConnected}
                 className="bg-neubrutalism-lime neubrutalism-btn px-8 py-4 text-xl disabled:opacity-50"
               >
                 {isTransferring
                   ? "TRANSFERRING..."
-                  : webrtcService.connection
+                  : isReceiverConnected
                     ? "START TRANSFER"
                     : "WAITING FOR RECEIVER..."}
               </button>
+              {!isReceiverConnected && (
+                <p className="mt-4 text-sm font-bold text-gray-600">
+                  Ask the receiver to connect using your Peer ID
+                </p>
+              )}
             </div>
           )}
         </>
