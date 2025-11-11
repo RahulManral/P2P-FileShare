@@ -15,10 +15,10 @@ const FileReceive = () => {
       try {
         const id = await webrtcService.initializePeer();
         setMyPeerId(id);
-        console.log("✅ Receiver initialized with ID:", id);
+        console.log("[UI] Receiver initialized with ID:", id);
 
         webrtcService.onConnectionEstablished = () => {
-          console.log("✅ Connection established callback triggered!");
+          console.log("[UI] Connection established callback!");
           if (!connectionEstablishedRef.current) {
             connectionEstablishedRef.current = true;
             setIsConnected(true);
@@ -27,9 +27,8 @@ const FileReceive = () => {
         };
 
         webrtcService.onReceiveFile = (data) => {
-          console.log("📥 Received file event:", data.type);
-          
-          // Also set connected when we receive file data
+          console.log("[UI] Received file event:", data.type);
+
           if (!connectionEstablishedRef.current) {
             connectionEstablishedRef.current = true;
             setIsConnected(true);
@@ -37,7 +36,7 @@ const FileReceive = () => {
           }
 
           if (data.type === "list") {
-            console.log("📋 Setting file list:", data.files);
+            console.log("[UI] Setting file list:", data.files);
             setReceivedFiles(
               data.files.map((file, index) => ({
                 ...file,
@@ -47,7 +46,8 @@ const FileReceive = () => {
               }))
             );
           } else if (data.type === "complete") {
-            console.log("✅ File complete:", data.fileIndex, data.name);
+            console.log("[UI] File complete:", data.fileIndex, data.name);
+            console.log("[UI] Blob size:", data.blob.size);
             setReceivedFiles((prev) =>
               prev.map((file) =>
                 file.id === data.fileIndex
@@ -59,6 +59,7 @@ const FileReceive = () => {
         };
 
         webrtcService.onProgress = (fileIndex, progress) => {
+          console.log("[UI] Progress update - File:", fileIndex, "Progress:", progress.toFixed(2) + "%");
           setDownloadProgress((prev) => ({
             ...prev,
             [fileIndex]: progress,
@@ -66,12 +67,12 @@ const FileReceive = () => {
         };
 
         webrtcService.onError = (error) => {
-          console.error("❌ WebRTC Error:", error);
+          console.error("[UI] WebRTC Error:", error);
           alert("Error: " + error.message);
           setIsConnecting(false);
         };
       } catch (error) {
-        console.error("❌ Failed to initialize:", error);
+        console.error("[UI] Failed to initialize:", error);
         alert("Failed to initialize: " + error.message);
       }
     };
@@ -96,15 +97,14 @@ const FileReceive = () => {
       return;
     }
 
-    console.log("🔵 Attempting to connect to:", trimmedId);
+    console.log("[UI] Attempting to connect to:", trimmedId);
     setIsConnecting(true);
 
     try {
       await webrtcService.connectToPeer(trimmedId);
-      console.log("✅ Connection initiated successfully");
-      // Don't set isConnected here - wait for callback or file data
+      console.log("[UI] Connection initiated successfully");
     } catch (error) {
-      console.error("❌ Failed to connect:", error);
+      console.error("[UI] Failed to connect:", error);
       alert("Failed to connect: " + error.message);
       setIsConnecting(false);
     }
@@ -117,8 +117,8 @@ const FileReceive = () => {
     }
 
     try {
-      console.log("💾 Downloading:", file.name, file.blob.size, "bytes");
-      
+      console.log("[UI] Downloading:", file.name, file.blob.size, "bytes");
+
       const url = URL.createObjectURL(file.blob);
       const a = document.createElement("a");
       a.href = url;
@@ -136,9 +136,9 @@ const FileReceive = () => {
         URL.revokeObjectURL(url);
       }, 100);
 
-      console.log("✅ Downloaded:", file.name);
+      console.log("[UI] Downloaded:", file.name);
     } catch (error) {
-      console.error("❌ Download failed:", error);
+      console.error("[UI] Download failed:", error);
       alert("Failed to download file: " + error.message);
     }
   };
@@ -150,7 +150,7 @@ const FileReceive = () => {
       return;
     }
 
-    console.log(`💾 Downloading ${readyFiles.length} files`);
+    console.log("[UI] Downloading " + readyFiles.length + " files");
     readyFiles.forEach((file, index) => {
       setTimeout(() => downloadFile(file), index * 300);
     });
@@ -165,6 +165,7 @@ const FileReceive = () => {
   };
 
   const getFileIcon = (type) => {
+    if (!type) return "📁";
     if (type.startsWith("image/")) return "🖼️";
     if (type.startsWith("video/")) return "🎬";
     if (type.startsWith("audio/")) return "🎵";
@@ -227,7 +228,7 @@ const FileReceive = () => {
             </div>
             {isConnecting && (
               <p className="mt-3 text-center font-bold text-blue-600 animate-pulse">
-                🔄 Establishing connection... Please wait.
+                Establishing connection... Please wait.
               </p>
             )}
           </div>
@@ -247,9 +248,9 @@ const FileReceive = () => {
       ) : (
         <div>
           <div className="bg-neubrutalism-lime text-black p-4 border-4 border-black mb-6 text-center">
-            <h3 className="text-2xl font-bold">🟢 CONNECTED & RECEIVING</h3>
+            <h3 className="text-2xl font-bold">CONNECTED & RECEIVING</h3>
             <p className="font-bold text-sm mt-2 break-all">
-              {senderId ? `FROM: ${senderId}` : "Connection Active"}
+              {senderId ? "FROM: " + senderId : "Connection Active"}
             </p>
           </div>
 
@@ -293,11 +294,12 @@ const FileReceive = () => {
                       {file.blob ? (
                         <button
                           onClick={() => downloadFile(file)}
-                          className={`neubrutalism-btn px-4 py-2 text-sm flex-shrink-0 ml-4 ${
-                            file.downloaded
+                          className={
+                            "neubrutalism-btn px-4 py-2 text-sm flex-shrink-0 ml-4 " +
+                            (file.downloaded
                               ? "bg-gray-300"
-                              : "bg-neubrutalism-yellow"
-                          }`}
+                              : "bg-neubrutalism-yellow")
+                          }
                         >
                           {file.downloaded ? "✓ DOWNLOADED" : "DOWNLOAD"}
                         </button>
@@ -306,7 +308,7 @@ const FileReceive = () => {
                           <div className="font-bold text-sm mb-1">
                             {Math.round(downloadProgress[file.id] || 0)}%
                           </div>
-                          <div className="text-blue-600 font-bold text-xs animate-pulse">
+                          <div className="text-blue-600 font-bold text-xs">
                             RECEIVING...
                           </div>
                         </div>
@@ -318,7 +320,7 @@ const FileReceive = () => {
                         <div
                           className="bg-neubrutalism-lime h-full transition-all duration-300"
                           style={{
-                            width: `${downloadProgress[file.id]}%`,
+                            width: downloadProgress[file.id] + "%",
                           }}
                         ></div>
                       </div>
@@ -328,7 +330,7 @@ const FileReceive = () => {
               </div>
             </div>
           ) : (
-            <div className="text-center p-8 bg-gray-100 border-4 border-dashed border-black mb-6 animate-pulse">
+            <div className="text-center p-8 bg-gray-100 border-4 border-dashed border-black mb-6">
               <div className="text-6xl mb-4">📭</div>
               <p className="text-xl font-bold">
                 WAITING FOR FILES FROM SENDER...

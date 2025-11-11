@@ -1,6 +1,6 @@
 import Peer from "peerjs";
 
-class webtrc {
+class WebRTCService {
   constructor() {
     this.peer = null;
     this.connection = null;
@@ -24,27 +24,27 @@ class webtrc {
             { urls: "stun:stun1.l.google.com:19302" },
           ],
         },
-        debug: 1,
+        debug: 2,
       });
 
       this.peer.on("open", (id) => {
-        console.log("Peer ID:", id);
+        console.log("[PEER] ID:", id);
         resolve(id);
       });
 
       this.peer.on("error", (error) => {
-        console.error("Peer error:", error);
+        console.error("[PEER] Error:", error);
         if (this.onError) this.onError(error);
         reject(error);
       });
 
       this.peer.on("connection", (conn) => {
-        console.log("Incoming connection from:", conn.peer);
+        console.log("[PEER] Incoming connection from:", conn.peer);
         this.setupConnection(conn);
       });
 
       this.peer.on("disconnected", () => {
-        console.log("Peer disconnected, attempting reconnection...");
+        console.log("[PEER] Disconnected, attempting reconnection...");
         if (!this.peer.destroyed) {
           this.peer.reconnect();
         }
@@ -53,27 +53,30 @@ class webtrc {
   }
 
   setupConnection(conn) {
-    console.log("Setting up connection...");
+    console.log("[CONN] Setting up connection...");
     this.connection = conn;
 
     conn.on("open", () => {
-      console.log("Connection established with:", conn.peer);
+      console.log("[CONN] Connection opened with:", conn.peer);
+      console.log("[CONN] Connection reliable:", conn.reliable);
+      console.log("[CONN] Connection serialization:", conn.serialization);
       if (this.onConnectionEstablished) {
         this.onConnectionEstablished();
       }
     });
 
     conn.on("data", (data) => {
+      console.log("[CONN] Data received, type:", typeof data, "length:", data.byteLength || data.length);
       this.handleReceivedData(data);
     });
 
     conn.on("error", (error) => {
-      console.error("Connection error:", error);
+      console.error("[CONN] Connection error:", error);
       if (this.onError) this.onError(error);
     });
 
     conn.on("close", () => {
-      console.log("Connection closed");
+      console.log("[CONN] Connection closed");
       this.connection = null;
     });
   }
@@ -85,7 +88,7 @@ class webtrc {
         return;
       }
 
-      console.log("Connecting to peer:", peerId);
+      console.log("[CONN] Connecting to peer:", peerId);
 
       const conn = this.peer.connect(peerId, {
         reliable: true,
@@ -96,7 +99,8 @@ class webtrc {
       let resolved = false;
 
       conn.on("open", () => {
-        console.log("Connection opened successfully!");
+        console.log("[CONN] Connection opened successfully!");
+        console.log("[CONN] Serialization mode:", conn.serialization);
         clearTimeout(timeoutId);
         if (!resolved) {
           resolved = true;
@@ -106,7 +110,7 @@ class webtrc {
       });
 
       conn.on("error", (error) => {
-        console.error("Connection error:", error);
+        console.error("[CONN] Connection error:", error);
         clearTimeout(timeoutId);
         if (!resolved) {
           resolved = true;
@@ -118,7 +122,7 @@ class webtrc {
       timeoutId = setTimeout(() => {
         if (!resolved) {
           resolved = true;
-          console.error("Connection timeout");
+          console.error("[CONN] Connection timeout");
           reject(
             new Error(
               "Connection timeout. Please check the peer ID and try again."
@@ -138,7 +142,7 @@ class webtrc {
       throw new Error("Connection is not open");
     }
 
-    console.log("Sending file list...");
+    console.log("[SEND] Sending file list...");
 
     const fileList = Array.from(files).map((file) => ({
       name: file.name,
@@ -155,13 +159,13 @@ class webtrc {
 
     for (let i = 0; i < files.length; i++) {
       console.log(
-        `Sending file ${i + 1}/${files.length}: ${files[i].name}`
+        "[SEND] Sending file " + (i + 1) + "/" + files.length + ": " + files[i].name
       );
       await this.sendFile(files[i], i);
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
 
-    console.log("All files sent!");
+    console.log("[SEND] All files sent!");
   }
 
   sendMetadata(metadata) {
@@ -174,13 +178,15 @@ class webtrc {
     new DataView(packet.buffer).setUint32(1, jsonBytes.length, true);
     packet.set(jsonBytes, 5);
 
+    console.log("[SEND] Sending metadata:", metadata.type, "size:", packet.length);
     this.connection.send(packet.buffer);
-    console.log("Metadata sent:", metadata.type);
   }
 
   async sendFile(file, fileIndex) {
     const chunkSize = 16384;
     const totalChunks = Math.ceil(file.size / chunkSize);
+
+    console.log("[SEND] File:", file.name, "Size:", file.size, "Chunks:", totalChunks);
 
     this.sendMetadata({
       type: "file-start",
@@ -211,6 +217,10 @@ class webtrc {
 
       this.connection.send(packet.buffer);
 
+      if (chunkIndex % 100 === 0) {
+        console.log("[SEND] Chunk", chunkIndex, "/", totalChunks);
+      }
+
       chunkIndex++;
       offset += chunkSize;
 
@@ -229,40 +239,68 @@ class webtrc {
       fileIndex: fileIndex,
     });
 
-    console.log(`File ${fileIndex} sent: ${file.name}`);
+    console.log("[SEND] File complete:", file.name);
   }
 
   handleReceivedData(data) {
-    const packet = new Uint8Array(data);
+    try {
+      // Ensure we have ArrayBuffer
+      let arrayBuffer;
+      if (data instanceof ArrayBuffer) {
+        arrayBuffer = data;
+      } else if (data.buffer instanceof ArrayBuffer) {
+        arrayBuffer = data.buffer;
+      } else {
+        console.error("[RECV] Unknown data type:", typeof data);
+        return;
+      }
 
-    if (packet.length === 0) return;
+      const packet = new Uint8Array(arrayBuffer);
+      console.log("[RECV] Packet size:", packet.length, "First byte:", packet[0]);
 
-    const marker = packet[0];
+      if (packet.length === 0) {
+        console.warn("[RECV] Empty packet received");
+        return;
+      }
 
-    if (marker === 0xff) {
-      const view = new DataView(packet.buffer);
-      const jsonLength = view.getUint32(1, true);
-      const jsonBytes = packet.slice(5, 5 + jsonLength);
-      const decoder = new TextDecoder();
-      const json = JSON.parse(decoder.decode(jsonBytes));
+      const marker = packet[0];
 
-      this.handleMetadata(json);
-    } else if (marker === 0x00) {
-      const view = new DataView(packet.buffer);
-      const fileIndex = view.getUint16(1, true);
-      const chunkIndex = view.getUint32(3, true);
-      const chunkData = packet.slice(7);
+      if (marker === 0xff) {
+        // Metadata packet
+        console.log("[RECV] Metadata packet detected");
+        const view = new DataView(packet.buffer);
+        const jsonLength = view.getUint32(1, true);
+        const jsonBytes = packet.slice(5, 5 + jsonLength);
+        const decoder = new TextDecoder();
+        const jsonStr = decoder.decode(jsonBytes);
+        console.log("[RECV] Metadata JSON:", jsonStr);
+        const json = JSON.parse(jsonStr);
 
-      this.handleChunk(fileIndex, chunkIndex, chunkData);
+        this.handleMetadata(json);
+      } else if (marker === 0x00) {
+        // Data packet
+        const view = new DataView(packet.buffer);
+        const fileIndex = view.getUint16(1, true);
+        const chunkIndex = view.getUint32(3, true);
+        const chunkData = packet.slice(7);
+
+        console.log("[RECV] Chunk received - File:", fileIndex, "Chunk:", chunkIndex, "Size:", chunkData.length);
+
+        this.handleChunk(fileIndex, chunkIndex, chunkData);
+      } else {
+        console.warn("[RECV] Unknown marker:", marker);
+      }
+    } catch (error) {
+      console.error("[RECV] Error handling data:", error);
     }
   }
 
   handleMetadata(json) {
-    console.log("Metadata received:", json.type);
+    console.log("[META] Type:", json.type);
 
     switch (json.type) {
       case "file-list":
-        console.log("File list received:", json.files);
+        console.log("[META] File list:", json.files);
         if (this.onReceiveFile) {
           this.onReceiveFile({
             type: "list",
@@ -272,7 +310,7 @@ class webtrc {
         break;
 
       case "file-start":
-        console.log("Starting file receive:", json.name);
+        console.log("[META] Starting file:", json.name, "Chunks:", json.totalChunks);
         this.currentFile = {
           name: json.name,
           size: json.size,
@@ -282,27 +320,31 @@ class webtrc {
           totalChunks: json.totalChunks,
           fileIndex: json.fileIndex,
         };
+        console.log("[META] Current file initialized:", this.currentFile);
         break;
 
       case "file-end":
+        console.log("[META] File end signal for index:", json.fileIndex);
         if (
           this.currentFile &&
           this.currentFile.fileIndex === json.fileIndex
         ) {
-          console.log("File complete:", this.currentFile.name);
+          console.log("[META] Processing file completion:", this.currentFile.name);
 
           const chunks = this.currentFile.chunks.filter(
-            (c) => c !== undefined
+            (c) => c !== undefined && c !== null
           );
+
+          console.log("[META] Total chunks received:", chunks.length, "/", this.currentFile.totalChunks);
 
           if (chunks.length !== this.currentFile.totalChunks) {
             console.error(
-              `Missing chunks! Got ${chunks.length}/${this.currentFile.totalChunks}`
+              "[META] Missing chunks! Got " + chunks.length + "/" + this.currentFile.totalChunks
             );
           }
 
           const blob = new Blob(chunks, { type: this.currentFile.type });
-          console.log("Blob created:", blob.size, "bytes");
+          console.log("[META] Blob created - Size:", blob.size, "Type:", blob.type);
 
           if (this.onReceiveFile) {
             this.onReceiveFile({
@@ -314,33 +356,46 @@ class webtrc {
           }
 
           this.currentFile = null;
+        } else {
+          console.warn("[META] File end received but no matching currentFile");
         }
         break;
+
+      default:
+        console.warn("[META] Unknown metadata type:", json.type);
     }
   }
 
   handleChunk(fileIndex, chunkIndex, chunkData) {
-    if (this.currentFile && this.currentFile.fileIndex === fileIndex) {
-      this.currentFile.chunks[chunkIndex] = chunkData;
-      this.currentFile.receivedChunks++;
+    if (!this.currentFile) {
+      console.error("[CHUNK] No current file! Chunk index:", chunkIndex);
+      return;
+    }
 
-      if (this.onProgress) {
-        const progress =
-          (this.currentFile.receivedChunks / this.currentFile.totalChunks) *
-          100;
-        this.onProgress(fileIndex, Math.min(progress, 100));
-      }
+    if (this.currentFile.fileIndex !== fileIndex) {
+      console.error("[CHUNK] File index mismatch! Expected:", this.currentFile.fileIndex, "Got:", fileIndex);
+      return;
+    }
 
-      if (this.currentFile.receivedChunks % 50 === 0) {
-        console.log(
-          `Progress: ${this.currentFile.receivedChunks}/${this.currentFile.totalChunks} chunks`
-        );
-      }
+    this.currentFile.chunks[chunkIndex] = chunkData;
+    this.currentFile.receivedChunks++;
+
+    if (this.currentFile.receivedChunks % 50 === 0 || this.currentFile.receivedChunks === 1) {
+      console.log(
+        "[CHUNK] Progress: " + this.currentFile.receivedChunks + "/" + this.currentFile.totalChunks
+      );
+    }
+
+    if (this.onProgress) {
+      const progress =
+        (this.currentFile.receivedChunks / this.currentFile.totalChunks) *
+        100;
+      this.onProgress(fileIndex, Math.min(progress, 100));
     }
   }
 
   disconnect() {
-    console.log("Disconnecting...");
+    console.log("[DISC] Disconnecting...");
     if (this.connection) {
       this.connection.close();
       this.connection = null;
@@ -353,4 +408,4 @@ class webtrc {
   }
 }
 
-export default new webtrc();
+export default new WebRTCService();
